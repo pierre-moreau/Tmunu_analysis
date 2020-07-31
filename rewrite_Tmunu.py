@@ -1,12 +1,12 @@
 import numpy as np
 import os
+from pathlib import Path
 import re
 import argparse
 import h5py
-from math import factorial
+import scipy.stats
 import cmath
 from tqdm import tqdm
-from sympy import diff, symbols, lambdify, solveset
 from EoS_HRG.full_EoS import find_param
 
 ###############################################################################
@@ -45,6 +45,14 @@ DETA = args.DETA
 folder = args.folder
 # b for evaluation of T,mu
 bTmuB = args.bTmuB
+# nucleus radius
+Rad = 1.2*197**(1./3.)
+
+########################################################################
+if(DETA<1):
+    string_deta = f'0{int(DETA*100):02d}'.rstrip("0")
+else:
+    string_deta = f'{int(DETA*10):02d}'
 
 ########################################################################
 path = os.getcwd()
@@ -61,7 +69,7 @@ def search_Tmunu(folder):
     files = []
     # try to find a match in the folders
     for fold in sorted(os.listdir(folder)):
-        match = re.match(f'TmunuTAU_ISUB([0-9]+)_B([0-9]+)_{int(DETA*10):02d}.dat', fold)
+        match = re.match(f'TmunuTAU_ISUB([0-9]+)_B([0-9]+)_{string_deta}.dat', fold)
         try:
             xISUB = int(match.group(1)) # ISUB number
             xB = int(match.group(2)) # impact parameter
@@ -79,7 +87,7 @@ def search_Tmunu(folder):
     files_final = list([[] for xb in B_final])
     # scan file names
     for fold in files:
-        match = re.match(f'TmunuTAU_ISUB([0-9]+)_B([0-9]+)_{int(DETA*10):02d}.dat', fold)
+        match = re.match(f'TmunuTAU_ISUB([0-9]+)_B([0-9]+)_{string_deta}.dat', fold)
         bbb = int(match.group(2)) # impact parameter
         # scan values of b
         for ib,xb in enumerate(B_final):
@@ -123,83 +131,13 @@ except:
     files_final = list([[] for xb in B_final])
     # scan file names
     for fold in files:
-        match = re.match(folder+f'job_([0-9]+)/TmunuTAU_ISUB([0-9]+)_B([0-9]+)_{int(DETA*10):02d}.dat', fold)
-        bbb = int(match.group(3)) # impact parameter
+        match = re.match(f'.+TmunuTAU_ISUB([0-9]+)_B([0-9]+)_{string_deta}.dat', fold)
+        bbb = int(match.group(2)) # impact parameter
         # scan values of b
         for ib,xb in enumerate(B_final):
             if(xb==bbb/10.):
                 files_final[ib].append(fold)
                 continue
-
-########################################################################
-def determinant(A):
-    """
-    Recursive calculation of the determinant of matrix A
-    """
-    if(A.shape == (2, 2)):
-        return A[0,0]*A[1,1] - A[0,1]*A[1,0]
-    else:
-        det = 0.
-        # iterate over row of matrix A
-        for i in range(len(A)):
-            sign = (-1.)**i
-
-            # identify submatrix
-            sublen = int(len(A)-1)
-            As = np.zeros((sublen,sublen),dtype=type(A[0,0]))
-            # count the number of row
-            row = 0
-            # iterate over row of matrix A
-            for j in range(len(A)):
-                # if row = i, skip
-                if(i==j):
-                    continue
-                As[:,row] = A[1:,j]
-                row += 1
-
-            # determinant
-            det += sign*A[0,i]*determinant(As)
-    return det
-
-###############################################################################
-def init_Tmunu():
-    """
-    calculate the eigenvalues of T^{\mu \nu}
-    Algebraic expressions for solve_Tmunu
-    """
-    T00 = symbols('T00')
-    T01 = symbols('T01')
-    T02 = symbols('T02')
-    T03 = symbols('T03')
-    T11 = symbols('T11')
-    T12 = symbols('T12')
-    T13 = symbols('T13')
-    T22 = symbols('T22')
-    T23 = symbols('T23')
-    T33 = symbols('T33')
-
-    Tmunu = np.array([[T00,T01,T02,T03],[T01,T11,T12,T13],[T02,T12,T22,T23],[T03,T13,T23,T33]])
-    gmunu = np.array([[1,0,0,0],[0,-1,0,0],[0,0,-1,0],[0,0,0,-1]])
-
-    # system to solve (x is the vector containing the eigenvalues)
-    # ( T^{\mu \nu} - x g^{\mu \nu} ) u_\mu = 0
-    x = symbols('x')
-    tosolve = Tmunu - x*gmunu
-    # calculate determinant of ( T^{\mu \nu} - x g^{\mu \nu} ) = characteristic polynomial
-    det = determinant(tosolve)
-
-    print(det)
-
-    # we want det(x) = c0 + c1*x +c2*x**2 + c3*x**3 + c4*x**4
-    # find coefficients of the characteristic polynomial
-    coeff = 5*[0.]
-    coeff[0] = det.subs(x,0)
-    for order in range(1,5):
-        det = diff(det, x, 1)
-        coeff[order] = det.subs(x,0)/factorial(order)
-
-    print(coeff[::-1])
-
 
 ###############################################################################
 def solve_Tmunu(Tmunu_comp):
@@ -273,7 +211,7 @@ def solve_Tmunu(Tmunu_comp):
     # only 3 equations are necessary to find vx,vy,vz
     # 1) (T11+e)*(-vx) + T12*(-vy) + T13*(-vz) = -T10
     # 2) T21*(-vx) + (T22+e)*(-vy) + T23*(-vz) = -T20
-    # 3) T31*(-vx) + T32*(-vy) + (T33+e)*(-vz) = -T20
+    # 3) T31*(-vx) + T32*(-vy) + (T33+e)*(-vz) = -T30
 
     vel = np.zeros(3)
 
@@ -338,7 +276,7 @@ dtype = [('coord', [(s, float) for s in ['tau','x','y','eta']]),
 
 ###############################################################################
 # open the output file and analyse the TmunuTAU files
-with h5py.File(f'{folder}/TmunuTAU_{int(DETA*10):02d}.hdf5', 'w') as output:
+with h5py.File(f'{folder}/TmunuTAU_{string_deta}.hdf5', 'w') as output:
     
 ###############################################################################
 # loop over the impact parameter b
@@ -404,12 +342,12 @@ with h5py.File(f'{folder}/TmunuTAU_{int(DETA*10):02d}.hdf5', 'w') as output:
         JCUR = np.zeros((len(x_unique),3,4))
         data['coord'] = x_unique
         del(x_unique)
+        anis = [[] for _ in range(itaumax+1)]
         
         print("     Reading data and averaging")
         # loop over ISUB
         for xfile in files_final[ib]:
             print('      - ',xfile)
-            # determine number of lines
             with open(xfile, 'r') as myfile:
                 for line in myfile:
                     list_line = line.split() # convert to list
@@ -430,6 +368,10 @@ with h5py.File(f'{folder}/TmunuTAU_{int(DETA*10):02d}.hdf5', 'w') as output:
                     nQ = density(line_fort[18:22],gamma)
                     nS = density(line_fort[22:26],gamma)
 
+                    # record tau and anisotropy for central cell x=y=eta=0
+                    if(abs(line_fort[1])<=(Rad-xb/2) and abs(line_fort[2])<=(Rad-xb/2) and line_fort[3]==0):
+                         anis[itau].append(Plong/Ptrans)
+
                     # average Tmunu and currents
                     TMUNU[index] += line_fort[4:14]
                     JCUR[index,0] += line_fort[14:18]
@@ -439,6 +381,10 @@ with h5py.File(f'{folder}/TmunuTAU_{int(DETA*10):02d}.hdf5', 'w') as output:
                     data['nval'][index] += 1
                     data['frac'][index] += line_fort[26]
 
+        with open(f'{folder}/Anis_B{int(xb*10)}_{string_deta}.dat','w') as anisfile:
+            anisfile.write('tau,anis,sem,sigma')
+            for itau,values in enumerate(anis):
+                anisfile.write(f'{DTAU*itau},{np.mean(values)},{scipy.stats.sem(values)},{np.std(values)}\n')
     
         print('         Preparing data for output')
         for index,nval in enumerate(data['nval']):
@@ -464,6 +410,9 @@ with h5py.File(f'{folder}/TmunuTAU_{int(DETA*10):02d}.hdf5', 'w') as output:
             
 print(f'\nTmunuTAU.dat are read and converted in {folder}TmunuTAU.hdf5')
 
+###############################################################################
+# now read the data file and convert from dat to Python dict
+print("\nConverting files to T,mu:")
 
 ########################################################################
 # choose format to classify the data
@@ -490,7 +439,7 @@ def select_cells(line):
 
 ###############################################################################
 # open the output file and analyse the TmuTAU files
-with h5py.File(f'{folder}/TmuTAU_{int(DETA*10):02d}.hdf5', 'w') as output:
+with h5py.File(f'{folder}/TmuTAU_{string_deta}.hdf5', 'w') as output:
     
 ###############################################################################
 # loop over the impact parameter b
