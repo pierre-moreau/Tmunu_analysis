@@ -1,6 +1,6 @@
-import numpy as np
 from math import factorial
 from sympy import diff, symbols, lambdify, solveset
+import numpy as np
 
 ########################################################################
 def determinant(A):

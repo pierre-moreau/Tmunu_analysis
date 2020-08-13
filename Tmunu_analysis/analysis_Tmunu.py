@@ -1,7 +1,3 @@
-import numpy as np
-import os
-import re
-import argparse
 import h5py
 import matplotlib.pyplot as pl
 # import from __init__.py
@@ -12,7 +8,7 @@ print('search TmunuTAU.hdf5 in this folder: {}'.format(folder))
 
 ########################################################################
 # list of all quantities and there LateX description
-list_quant = {'e':r'$\epsilon$ [GeV.fm$^{-3}$]','vx':r'$v_x$','vy':r'$v_y$','vz':r'$|v_z|$','Plong':r'$P_L$ [GeV.fm$^{-3}$]','Ptrans':r'$P_T$ [GeV.fm$^{-3}$]','PLPT':r'$P_L/P_T$','nB':r'$n_B$ [fm$^{-3}$]','nQ':r'$n_Q$ [fm$^{-3}$]','nS':r'$n_S$ [fm$^{-3}$]','frac':r'$\epsilon_{QGP}/\epsilon_{tot}$','count':r'$N_{cells}$'}
+list_quant = {'e':r'$\epsilon$ [GeV.fm$^{-3}$]','vx':r'$v_x$','vy':r'$v_y$','vz':r'$|v_z|$','Plong':r'$P_L$ [GeV.fm$^{-3}$]','Ptrans':r'$P_T$ [GeV.fm$^{-3}$]','PLPT':r'$P_L/P_T$','nB':r'$n_B$ [fm$^{-3}$]','nQ':r'$n_Q$ [fm$^{-3}$]','nS':r'$n_S$ [fm$^{-3}$]','nQnB':r'$n_Q/n_B$','frac':r'$\epsilon_{QGP}/\epsilon_{tot}$','count':r'$N_{cells}$'}
 
 ########################################################################
 file = f'TmunuTAU_{string_deta}.hdf5'

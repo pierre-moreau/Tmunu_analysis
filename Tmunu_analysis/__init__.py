@@ -1,3 +1,10 @@
+"""
+To process, analyze and plot data of the energy-momentum tensor and charge currents extracted from the Parton-Hadron-String Dynamics (PHSD) model.
+Temperature and chemical potentials are obtained by using the EoS_HRG module.
+"""
+
+__version__ = '1.0.0'
+
 import matplotlib.pyplot as pl
 from matplotlib.pyplot import rc
 from matplotlib.colors import LogNorm
@@ -5,9 +12,15 @@ import matplotlib.ticker
 import math
 import numpy as np
 import argparse
+import cmath
+import os
+import re
+
+path = os.getcwd()
+print(f'\ncurrent direcory: {path}')
 
 ###############################################################################
-__doc__ = """Analyse the TmunuTAU.hdf files and plot data"""
+__doc__ = """Analyse the TmunuTAU files"""
 ###############################################################################
 parser = argparse.ArgumentParser(
         description=__doc__,
@@ -30,6 +43,9 @@ parser.add_argument(
 parser.add_argument(
         '--energy', type=float, default=200,
         help='\sqrt(s_{NN}) [GeV]')
+parser.add_argument(
+        '--bTmuB', type=float, default=2.,
+        help='For which impact parameter evaluate T,mu from EoS?')
 args = parser.parse_args()
 
 # info about the grid
@@ -48,6 +64,11 @@ else:
     
 system = f'AuAu{string_energy}GeV'
 
+# b for evaluation of T,mu
+bTmuB = args.bTmuB
+# nucleus radius
+Rad = 1.2*197**(1./3.)
+
 ########################################################################
 if(DETA<1):
     string_deta = f'0{int(DETA*100):02d}'.rstrip("0")
@@ -55,7 +76,157 @@ else:
     string_deta = f'{int(DETA*10):02d}'
 
 ########################################################################
+# Search and process TmunuTAU files
+########################################################################
+def search_Tmunu(folder):
+    """
+    search TmunuTAU.dat files in folder
+    """
+    B = []
+    files = []
+    # try to find a match in the folders
+    for fold in sorted(os.listdir(folder)):
+        match = re.match(f'TmunuTAU_ISUB([0-9]+)_B([0-9]+)_{string_deta}.dat', fold)
+        try:
+            xISUB = int(match.group(1)) # ISUB number
+            xB = int(match.group(2)) # impact parameter
+            B.append(xB/10.)
+            files.append(fold) # add folder to the files_final list
+            print(f'- ISUB = {xISUB} ; B = {xB/10.} fm')
+        except:
+            pass
+
+    # if no files found here, return None
+    if(len(B)==0):
+        return None,None
+
+    B_final = np.unique(np.array(B,dtype=int)) # table containing each unique value of impact parameter
+    files_final = list([[] for xb in B_final])
+    # scan file names
+    for fold in files:
+        match = re.match(f'TmunuTAU_ISUB([0-9]+)_B([0-9]+)_{string_deta}.dat', fold)
+        bbb = int(match.group(2)) # impact parameter
+        # scan values of b
+        for ib,xb in enumerate(B_final):
+            if(xb==bbb/10.):
+                files_final[ib].append(folder+fold)
+                continue
+
+    return B_final,files_final
+
+########################################################################
+def solve_Tmunu(Tmunu_comp):
+    """
+    calculate the eigenvalues of T^{\mu \nu}
+    Tmunu_comp is a list containing [T00,T01,T02,T03,T11,T12,T13,T22,T23,T33]
+    """
+    T00 = Tmunu_comp[0]
+    T01 = Tmunu_comp[1]
+    T02 = Tmunu_comp[2]
+    T03 = Tmunu_comp[3]
+    T11 = Tmunu_comp[4]
+    T12 = Tmunu_comp[5]
+    T13 = Tmunu_comp[6]
+    T22 = Tmunu_comp[7]
+    T23 = Tmunu_comp[8]
+    T33 = Tmunu_comp[9]
+
+    # coefficient of the characteristic polynomial
+    # det(x) = c0 + c1*x +c2*x**2 + c3*x**3 + c4*x**4
+    a = -1.
+    b = T00 - 1.0*T11 - 1.0*T22 - 1.0*T33
+    c = 0.5*T00*(2.0*T11 + 2.0*T22 + 2.0*T33) - 1.0*T01**2 - 1.0*T02**2 - 1.0*T03**2 + 0.5*T11*(-1.0*T22 - 1.0*T33) - 0.5*T11*(T22 + T33) + T12**2 + T13**2 - 1.0*T22*T33 + T23**2
+    d = 1.0*T00*(1.0*T11*(T22 + T33) - 1.0*T12**2 - 1.0*T13**2 + 1.0*T22*T33 - 1.0*T23**2) - 1.0*T01*(1.0*T01*(T22 + T33) - 1.0*T02*T12 - 1.0*T03*T13) + 1.0*T02*(1.0*T01*T12 - 1.0*T02*T11 - 1.0*T02*T33 + 1.0*T03*T23) - 1.0*T03*(-1.0*T01*T13 - 1.0*T02*T23 + 1.0*T03*T11 + 1.0*T03*T22) - 1.0*T11*(T22*T33 - T23**2) + 1.0*T12*(T12*T33 - T13*T23) - 1.0*T13*(T12*T23 - T13*T22)
+    e = 1.0*T00*(1.0*T11*(T22*T33 - T23**2) - 1.0*T12*(T12*T33 - T13*T23) + 1.0*T13*(T12*T23 - T13*T22)) - 1.0*T01*(1.0*T01*(T22*T33 - T23**2) - 1.0*T12*(T02*T33 - T03*T23) + 1.0*T13*(T02*T23 - T03*T22)) + 1.0*T02*(1.0*T01*(T12*T33 - T13*T23) - 1.0*T11*(T02*T33 - T03*T23) + 1.0*T13*(T02*T13 - T03*T12)) - 1.0*T03*(1.0*T01*(T12*T23 - T13*T22) - 1.0*T11*(T02*T23 - T03*T22) + 1.0*T12*(T02*T13 - T03*T12))
+
+    D0 = c**2. -3.*b*d + 12*a*e
+    D1 = 2.*c**3. - 9*b*c*d + 27.*(b**2.)*e + 27*a*d**2. - 72.*a*c*e
+
+    pp =(8.*a*c-3.*b**2.)/(8*a**2.)
+    qq = (b**3.-4.*a*b*c+8.*(a**2.)*d)/(8*a**3.)
+
+    Q = ((D1+cmath.sqrt(D1**2.-4.*D0**3.))/2.)**(1./3.)
+    S = 0.5*cmath.sqrt(-2./3.*pp+1./(3.*a)*(Q+D0/Q))
+
+    e = abs(-b/(4.*a) + S + 0.5*np.sqrt(-4.*S**2. -2.*pp - qq/S))
+    P1 = abs(-b/(4.*a) + S - 0.5*np.sqrt(-4.*S**2. -2.*pp - qq/S))
+    P2 = abs(-b/(4.*a) - S + 0.5*np.sqrt(-4.*S**2. -2.*pp + qq/S))
+    P3 = abs(-b/(4.*a) - S - 0.5*np.sqrt(-4.*S**2. -2.*pp + qq/S))
+
+    #print(e,P1,P2,P3)
+
+    diff12 = abs(P1/P2-1.) # is P1 close to P2?
+    diff13 = abs(P1/P3-1.) # is P1 close to P3?
+    diff23 = abs(P2/P3-1.) # is P2 close to P3?
+
+    if(diff12<diff13 and diff12<diff23):
+        Ptrans = (P1+P2)/2.
+        Plong = P3
+        #print('P1,P2')   
+        #input('pause')   
+    elif(diff13<diff12 and diff13<diff23):
+        Ptrans = (P1+P3)/2.
+        Plong = P2     
+        #print('P1,P3') 
+        #input('pause')   
+    elif(diff23<diff12 and diff23<diff13):
+        Ptrans = (P2+P3)/2.
+        Plong = P1
+        #print('P2,P3')
+
+    # syste to solve to find velocity vector u^\mu
+    # is ( T^{\mu \nu} - x g^{\mu \nu} ) u_\mu = 0 
+    # x is replaced by energy density e
+
+    # solution is u_\mu = \gamma (1,-vx,-vy,-vz)
+    # only 3 equations are necessary to find vx,vy,vz
+    # 1) (T11+e)*(-vx) + T12*(-vy) + T13*(-vz) = -T10
+    # 2) T21*(-vx) + (T22+e)*(-vy) + T23*(-vz) = -T20
+    # 3) T31*(-vx) + T32*(-vy) + (T33+e)*(-vz) = -T30
+
+    vel = np.zeros(3)
+
+    vel[0] = (e**2*T01 - T03*T13*T22 + T03*T12*T23 + T02*T13*T23 - T01*T23**2 - T02*T12*T33 + T01*T22*T33 + e*(-(T02*T12) - T03*T13 + T01*(T22 + T33)))/ \
+       (e**3 - T13**2*T22 + 2*T12*T13*T23 - T11*T23**2 - e*(T12**2 + T13**2 - T11*T22 + T23**2) - T12**2*T33 + T11*T22*T33 + e*(T11 + T22)*T33 + \
+        e**2*(T11 + T22 + T33))
+
+    vel[1] = (e**2*T02 + T03*T12*T13 - T02*T13**2 - T03*T11*T23 + T01*T13*T23 + T02*T11*T33 - T01*T12*T33 + e*(-(T01*T12) - T03*T23 + T02*(T11 + T33)))/ \
+       (e**3 - T13**2*T22 + 2*T12*T13*T23 - T11*T23**2 - e*(T12**2 + T13**2 - T11*T22 + T23**2) - T12**2*T33 + T11*T22*T33 + e*(T11 + T22)*T33 + \
+        e**2*(T11 + T22 + T33))
+
+    vel[2] = (e**2*T03 - T03*T12**2 + T02*T12*T13 + T03*T11*T22 - T01*T13*T22 - T02*T11*T23 + T01*T12*T23 + e*(-(T01*T13) + T03*(T11 + T22) - T02*T23))/ \
+       (e**3 - T13**2*T22 + 2*T12*T13*T23 - T11*T23**2 - e*(T12**2 + T13**2 - T11*T22 + T23**2) - T12**2*T33 + T11*T22*T33 + e*(T11 + T22)*T33 + \
+        e**2*(T11 + T22 + T33))
+
+    #print(vel)
+
+    # gamma factor
+    gamma = 1./np.sqrt(1.-sum([vi**2. for vi in vel]))
+
+    return e,Plong,Ptrans,vel,gamma
+
+########################################################################
+def density(cur,gamma):
+    """
+    calculate local densities from charge current
+    gamma is the Lorentz factor obtained by Landau condition in 
+    case the charge density is exactly zero
+    """
+    J0 = cur[0]
+    J1 = cur[1]
+    J2 = cur[2]
+    J3 = cur[3]
+
+    if(J0!=0.):
+        vJ2 = (J1**2. + J2**2. + J3**2.)/J0**2
+        if(vJ2<1.):
+            gamma = 1./np.sqrt(1.-vJ2)
+
+    return J0/gamma
+
+########################################################################
 # settings for plots
+########################################################################
 SMALL_SIZE = 20
 MEDIUM_SIZE = 25
 BIGGER_SIZE = 30
@@ -73,6 +244,7 @@ rc('ytick.major', size=7, width=3, pad=10)
 rc('legend', fontsize=SMALL_SIZE, title_fontsize=SMALL_SIZE, handletextpad=0.25)    # legend fontsize
 rc('figure', titlesize=BIGGER_SIZE, titleweight='bold')  # fontsize of the figure title
 rc('savefig', dpi=300, bbox='tight')
+rc('animation',ffmpeg_path='/usr/bin/ffmpeg')
 
 ########################################################################
 def ticks_log(xmin,xmax):
@@ -165,6 +337,13 @@ def cells(aver,list_quant,data_dict,data_tau,taus,data_eta,etas,cond_x0y0):
                         result[quant][i,j] = np.mean(data1)
                         if(result[quant][i,j]>10E+3):
                             result[quant][i,j] = 0.
+                # average quantities
+                elif(quant=='nQnB'):
+                    data1 = data_dict['nQ'][cond]/data_dict['nB'][cond]
+                    if(len(data1)>0):
+                        result[quant][i,j] = np.mean(data1)
+                        if(result[quant][i,j]>10E+3):
+                            result[quant][i,j] = 0.
                 elif(quant=='muBT'):
                     data1 = data_dict['muB'][cond]/data_dict['T'][cond]
                     if(len(data1)>0):
@@ -224,6 +403,12 @@ def plot_tau_eta(aver,list_quant,data_dict,data_tau,taus,data_eta,etas,cond_x0y0
             pdat_z = 0.5*np.log((1.+pdat_z)/(1.-pdat_z))
             list_quant[quant] = 'rapidity $y$'
 
+        levels = 30
+        if(quant=='nQnB'):
+            levels = np.arange(0.0, 1.0, 0.1)
+        if(quant=='PLPT'):
+            levels = np.arange(0.5, 2.0, 0.1)
+
         if(log):
             data_nonzero = pdat_z[pdat_z > 0]
             ticks = ticks_log(data_nonzero.min(),data_nonzero.max())
@@ -236,7 +421,7 @@ def plot_tau_eta(aver,list_quant,data_dict,data_tau,taus,data_eta,etas,cond_x0y0
             ax.clabel(pcontours, inline=True, fontsize=8)
         else:
             #im = ax.pcolormesh(data['x']-DETA/2.,data['y']-DTAU/2.,data['z'],cmap='gist_rainbow_r')
-            im = ax.contourf(pdat_x,pdat_y,pdat_z,30,cmap='gist_rainbow_r',extend='both')
+            im = ax.contourf(pdat_x,pdat_y,pdat_z,levels,cmap='gist_rainbow_r',extend='both')
             cbar = f.colorbar(im, ax=ax, extend="both")
         
             pcontours = ax.contour(pdat_x,pdat_y,pdat_z, contours, colors='black',alpha=0.5)
