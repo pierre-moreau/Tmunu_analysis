@@ -3,7 +3,7 @@ To process, analyze and plot data of the energy-momentum tensor and charge curre
 Temperature and chemical potentials are obtained by using the EoS_HRG module.
 """
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 import matplotlib.pyplot as pl
 from matplotlib.pyplot import rc
@@ -200,29 +200,93 @@ def solve_Tmunu(Tmunu_comp):
 
     #print(vel)
 
-    # gamma factor
-    gamma = 1./np.sqrt(1.-sum([vi**2. for vi in vel]))
-
-    return e,Plong,Ptrans,vel,gamma
+    return e,Plong,Ptrans,vel
 
 ########################################################################
-def density(cur,gamma):
+def fourprod(vec1,vec2):
+    """
+    inner product of two four-vectors
+    """
+    return vec1[0]*vec2[0]-vec1[1]*vec2[1]-vec1[2]*vec2[2]-vec1[3]*vec2[3]
+
+########################################################################
+def tensprod(tens1,tens2):
+    """
+    inner product of two tensors
+    """
+    # metric tensor
+    gmunu = np.array([[1,0,0,0],[0,-1,0,0],[0,0,-1,0],[0,0,0,-1]])
+    # Einstein summation
+    prod = 0.
+    for alpha in range(4):
+        for beta in range(4):
+            for mu in range(4):
+                for nu in range(4):
+                    prod += tens1[mu,nu]*tens2[alpha,beta]*gmunu[alpha,mu]*gmunu[beta,nu]
+
+    return prod
+
+########################################################################
+def density(cur,vel):
     """
     calculate local densities from charge current
-    gamma is the Lorentz factor obtained by Landau condition in 
-    case the charge density is exactly zero
+    gamma/vel is the Lorentz factor/velocity obtained by Landau condition
     """
-    J0 = cur[0]
-    J1 = cur[1]
-    J2 = cur[2]
-    J3 = cur[3]
+    # gamma factor
+    gamma = 1./np.sqrt(1.-sum([vi**2. for vi in vel]))
+    # four velocity vector
+    umu = gamma*np.array([1.,vel[0],vel[1],vel[2]])
+    # local density
+    nloc = fourprod(umu,cur)
+    # dissipative term
+    nmu = cur-nloc*umu
+    # Inverse Reynolds number
+    Reyn = np.sqrt(fourprod(nmu,nmu))/nloc
 
-    if(J0!=0.):
-        vJ2 = (J1**2. + J2**2. + J3**2.)/J0**2
-        if(vJ2<1.):
-            gamma = 1./np.sqrt(1.-vJ2)
+    return nloc,Reyn
 
-    return J0/gamma
+########################################################################
+def dissip_Tmunu(Tmunu_comp,e,Piso,vel):
+    """
+    calculate BVP and shear stress tensor from Tmunu
+    and associated Reynolds number
+    """
+    T00 = Tmunu_comp[0]
+    T01 = Tmunu_comp[1]
+    T02 = Tmunu_comp[2]
+    T03 = Tmunu_comp[3]
+    T11 = Tmunu_comp[4]
+    T12 = Tmunu_comp[5]
+    T13 = Tmunu_comp[6]
+    T22 = Tmunu_comp[7]
+    T23 = Tmunu_comp[8]
+    T33 = Tmunu_comp[9]
+    # Tmunu
+    Tmunu = np.array([[T00,T01,T02,T03],[T01,T11,T12,T13],[T02,T12,T22,T23],[T03,T13,T23,T33]])
+    # gamma factor
+    gamma = 1./np.sqrt(1.-sum([vi**2. for vi in vel]))
+    # four velocity vector
+    umu = gamma*np.array([1.,vel[0],vel[1],vel[2]])
+    # metric tensor
+    gmunu = np.array([[1,0,0,0],[0,-1,0,0],[0,0,-1,0],[0,0,0,-1]])
+
+    # projection operators
+    umuunu = np.zeros_like(Tmunu)
+    Dmunu = np.zeros_like(Tmunu)
+    for mu in range(4):
+        for nu in range(4):
+            umuunu[mu,nu] = umu[mu]*umu[nu]
+            Dmunu[mu,nu] = gmunu[mu,nu] - umuunu[mu,nu]
+
+    # bulk viscous pressure
+    BVP = -1./3.*tensprod(Dmunu,Tmunu)-Piso
+    ReynPI = np.sqrt(BVP**2.)/(e+Piso)
+
+    # shear stress tensor
+    pimunu = Tmunu -e*umuunu + (Piso+BVP)*Dmunu
+    Reynpi = np.sqrt(tensprod(pimunu,pimunu))/(e+Piso)
+    
+    return Reynpi,ReynPI
 
 ########################################################################
 # settings for plots

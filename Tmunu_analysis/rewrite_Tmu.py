@@ -1,7 +1,7 @@
 import re
 import h5py
 from tqdm import tqdm
-from EoS_HRG.full_EoS import find_param
+from EoS_HRG.full_EoS import find_param, full_EoS
 # import from __init__.py
 from . import *
 
@@ -57,9 +57,16 @@ print("\nConverting files to T,mu:")
 ########################################################################
 # choose format to classify the data
 dtype = [('coord', [(s, float) for s in ['tau','x','y','eta']]),
+        ('e', float),
+        ('v', [(s, float) for s in ['vx','vy','vz']]),
+        ('Plong', float),
+        ('Ptrans', float),
+        ('n', [(s, float) for s in ['nB','nQ','nS']]),
+        ('frac', float),
+        ('nval',int),
         ('T',float),
         ('mu', [(s, float) for s in ['muB','muQ','muS']]),
-        ('nval',int)
+        ('Reyn', [(s, float) for s in ['pi','PI','B','Q','S']])
         ]
 
 ########################################################################
@@ -79,7 +86,7 @@ def select_cells(line):
 
 ###############################################################################
 # open the output file and analyse the TmuTAU files
-with h5py.File(f'{folder}/TmuTAU_{string_deta}.hdf5', 'w') as output:
+with h5py.File(f'{folder}/FULLTmuTAU_{string_deta}.hdf5', 'w') as output:
     
 ###############################################################################
 # loop over the impact parameter b
@@ -111,6 +118,7 @@ with h5py.File(f'{folder}/TmuTAU_{string_deta}.hdf5', 'w') as output:
             with open(xfile, 'r') as myfile:
                 for line in myfile:
                     line_fort = line.split()
+                    # select cells to evaluate
                     if(select_cells(line_fort[0:4])):
                         data_coord[i] = tuple([float(val) for val in line_fort[0:4]])
                         i += 1
@@ -162,6 +170,7 @@ with h5py.File(f'{folder}/TmuTAU_{string_deta}.hdf5', 'w') as output:
                     list_line = line.split() # convert to list
                     line_fort = np.array([float(val) for val in list_line]) # convert from string to float
 
+                    # select cells to evaluate
                     if(select_cells(line_fort[0:4])):
                         pass
                     else:
@@ -181,29 +190,49 @@ with h5py.File(f'{folder}/TmuTAU_{string_deta}.hdf5', 'w') as output:
                     JCUR[index,0] = line_fort[14:18]
                     JCUR[index,1] = line_fort[18:22]
                     JCUR[index,2] = line_fort[22:26]
+
                     data['nval'][index] += 1
+                    data['frac'][index] += line_fort[26]
     
         print('         Preparing data for output')
         for index,nval in enumerate(tqdm(data['nval'])):
             # dividing quantities by number of values
             TMUNU[index] /= nval
             JCUR[index] /= nval
+            # partonic fraction
+            data['frac'][index] /= nval
 
             # diagonalization of Tmunu
-            e,Plong,Ptrans,v,gamma = solve_Tmunu(TMUNU[index])
+            e,Plong,Ptrans,v = solve_Tmunu(TMUNU[index])
+            data['e'][index] = e
+            data['Plong'][index] = Plong
+            data['Ptrans'][index] = Ptrans
+            data['v'][index] = tuple(v)
 
             # local densities
-            nB = density(JCUR[index,0],gamma)
-            nQ = density(JCUR[index,1],gamma)
-            nS = density(JCUR[index,2],gamma)
+            nB,ReynB = density(JCUR[index,0],v)
+            nQ,ReynQ = density(JCUR[index,1],v)
+            nS,ReynS = density(JCUR[index,2],v)
+            data['n'][index] = (nB,nQ,nS)
 
-            if(e<0.001):
+            if(e<0.0001):
+                data['T'][index] = 0.
+                data['mu'][index] = (0.,0.,0.)
+                data['Reyn'][index] = (0.,0.,ReynB,ReynQ,ReynS)
                 continue
 
             # T,muB,muQ,muS
             Tmu = find_param('full',e=e,n_B=nB,n_Q=nQ,n_S=nS)
             data['T'][index] = Tmu['T']
             data['mu'][index] = (Tmu['muB'],Tmu['muQ'],Tmu['muS'])
+            
+            # pressure from the EoS
+            P0 = full_EoS(Tmu['T'],Tmu['muB'],Tmu['muQ'],Tmu['muS'])
+
+            # dissipative currents of Tmunu - Reynolds numbers
+            Reynpi, ReynPI = dissip_Tmunu(TMUNU[index],e,P0,v)
+
+            data['Reyn'][index] = (Reynpi,ReynPI,ReynB,ReynQ,ReynS)
 
         output.create_dataset(f'{xb}', data=data)
             
