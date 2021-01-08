@@ -49,25 +49,23 @@ except:
                 files_final[ib].append(fold)
                 continue
 
-########################################################################
-# for tests
-"""
-Tmunu_comp = [1140.4071, 1.9445, -5.6739, -1134.2047, 0.0033, -0.0097, -1.9339, 0.0282, 5.6431, 1128.0360]
-solve_Tmunu(Tmunu_comp)
-input('pause')
-"""
-
 ###############################################################################
 # now read the data file and convert from dat to Python dict
 print("\nConverting files:")
 
 ########################################################################
 # choose format to classify the data
+
+Tmunu_dtype = [('Tmunu', [(s, float) for s in ['T00','T01','T02','T03','T11','T12','T13','T22','T23','T33']])]
+JB_dtype = [('JB', [(s, float) for s in ['JB0','JB1','JB2','JB3']])]
+JQ_dtype = [('JQ', [(s, float) for s in ['JQ0','JQ1','JQ2','JQ3']])]
+JS_dtype = [('JS', [(s, float) for s in ['JS0','JS1','JS2','JS3']])]
+
 dtype = [('coord', [(s, float) for s in ['tau','x','y','eta']]),
-        ('Tmunu', [(s, float) for s in ['T00','T01','T02','T03','T11','T12','T13','T22','T23','T33']]),
-        ('JB', [(s, float) for s in ['JB0','JB1','JB2','JB3']]),
-        ('JQ', [(s, float) for s in ['JQ0','JQ1','JQ2','JQ3']]),
-        ('JS', [(s, float) for s in ['JS0','JS1','JS2','JS3']]),
+        Tmunu_dtype[0],
+        JB_dtype[0],
+        JQ_dtype[0],
+        JS_dtype[0],
         ('frac', float),
         ('nval',int)
         ]
@@ -163,21 +161,30 @@ with h5py.File(f'{folder}/TmunuTAU_{string_deta}.hdf5', 'w') as output:
 # format is: tau,x,y,eta,T00,T01,T02,T03,T11,T12,T13,T22,T23,T33,JB0,JB1,JB2,JB3,JQ0,JQ1,JQ2,JQ3,JS0,JS1,JS2,JS3,frac
 
                     # record Tmunu and currents
-                    data['Tmunu'][index] = tuple([line_fort[4+i]+data['Tmunu'][index][i] for i in range(10)])
-                    data['JB'][index] = tuple([line_fort[14+i]+data['JB'][index][i] for i in range(4)])
-                    data['JQ'][index] = tuple([line_fort[18+i]+data['JQ'][index][i] for i in range(4)])
-                    data['JS'][index] = tuple([line_fort[22+i]+data['JS'][index][i] for i in range(4)])
+                    for icol,col in enumerate(data['Tmunu'][index].dtype.names):
+                        data['Tmunu'][index][col] += line_fort[4+icol]
+                    for icol,col in enumerate(data['JB'][index].dtype.names):
+                        data['JB'][index][col] += line_fort[14+icol]
+                    for icol,col in enumerate(data['JQ'][index].dtype.names):
+                        data['JQ'][index][col] += line_fort[18+icol]
+                    for icol,col in enumerate(data['JS'][index].dtype.names):
+                        data['JS'][index][col] += line_fort[22+icol]
                     data['frac'][index] += line_fort[26]
                     data['nval'][index] += 1
     
         print('         Preparing data for output')
         for index,nval in enumerate(data['nval']):
-            # averaged quantities, divide by number of values
-            data['Tmunu'][index] = tuple([data['Tmunu'][index][i]/nval for i in range(10)])
-            data['JB'][index] = tuple([data['JB'][index][i]/nval for i in range(4)])
-            data['JQ'][index] = tuple([data['JQ'][index][i]/nval for i in range(4)])
-            data['JS'][index] = tuple([data['JS'][index][i]/nval for i in range(4)])
-            data['frac'][index] /= nval
+            if(nval>0):
+                # averaged quantities, divide by number of values
+                for col in data['Tmunu'][index].dtype.names:
+                    data['Tmunu'][index][col] /= nval
+                for col in data['JB'][index].dtype.names:
+                    data['JB'][index][col] /= nval
+                for col in data['JQ'][index].dtype.names:
+                    data['JQ'][index][col] /= nval
+                for col in data['JS'][index].dtype.names:
+                    data['JS'][index][col] /= nval
+                data['frac'][index] /= nval
 
         output.create_dataset(f'{xb}', data=data)
             

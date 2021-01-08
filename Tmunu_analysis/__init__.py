@@ -38,7 +38,7 @@ parser.add_argument(
         '--DY', type=float, default=1.,
         help='bin in Y [fm]')
 parser.add_argument(
-        '--DETA', type=float, default=0.25,
+        '--DETA', type=float, default=1.,
         help='bin in spacetime rapidity eta')
 parser.add_argument(
         '--energy', type=float, default=200,
