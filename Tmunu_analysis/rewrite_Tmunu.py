@@ -64,11 +64,10 @@ print("\nConverting files:")
 ########################################################################
 # choose format to classify the data
 dtype = [('coord', [(s, float) for s in ['tau','x','y','eta']]),
-        ('e', float),
-        ('v', [(s, float) for s in ['vx','vy','vz']]),
-        ('Plong', float),
-        ('Ptrans', float),
-        ('n', [(s, float) for s in ['nB','nQ','nS']]),
+        ('Tmunu', [(s, float) for s in ['T00','T01','T02','T03','T11','T12','T13','T22','T23','T33']]),
+        ('JB', [(s, float) for s in ['JB0','JB1','JB2','JB3']]),
+        ('JQ', [(s, float) for s in ['JQ0','JQ1','JQ2','JQ3']]),
+        ('JS', [(s, float) for s in ['JS0','JS1','JS2','JS3']]),
         ('frac', float),
         ('nval',int)
         ]
@@ -81,6 +80,10 @@ with h5py.File(f'{folder}/TmunuTAU_{string_deta}.hdf5', 'w') as output:
 # loop over the impact parameter b
     for ib,xb in enumerate(B_final):
         
+        # which impact parameter to consider?
+        if(xb != bTmuB):
+            continue
+
         print(f'\n  b = {xb} fm')
 ###############################################################################
 # count the total number of lines for each impact parameter
@@ -95,7 +98,7 @@ with h5py.File(f'{folder}/TmunuTAU_{string_deta}.hdf5', 'w') as output:
                  
 ###############################################################################
 # count the number of unique coordinates
-        print("     Calculating unique cells")
+        print("     Recording coordinates")
         data_coord = np.zeros(count,dtype=[(s, float) for s in ['tau','x','y','z']])   
         i = 0
         for xfile in files_final[ib]:
@@ -104,7 +107,8 @@ with h5py.File(f'{folder}/TmunuTAU_{string_deta}.hdf5', 'w') as output:
                     line_fort = line.split()
                     data_coord[i] = tuple([float(val) for val in line_fort[0:4]])
                     i += 1
-         
+        
+        print("     Calculating unique cells")
         # just keep coordinate values (tau,x,y,z) once for the output
         x_unique = np.unique(data_coord)
         del(data_coord)
@@ -137,11 +141,8 @@ with h5py.File(f'{folder}/TmunuTAU_{string_deta}.hdf5', 'w') as output:
         
         # initialize the data array with the specified datatype
         data = np.zeros(len(x_unique),dtype=dtype)
-        TMUNU = np.zeros((len(x_unique),10))
-        JCUR = np.zeros((len(x_unique),3,4))
         data['coord'] = x_unique
         del(x_unique)
-        anis = [[] for _ in range(itaumax+1)]
         
         print("     Reading data and averaging")
         # loop over ISUB
@@ -161,49 +162,22 @@ with h5py.File(f'{folder}/TmunuTAU_{string_deta}.hdf5', 'w') as output:
 
 # format is: tau,x,y,eta,T00,T01,T02,T03,T11,T12,T13,T22,T23,T33,JB0,JB1,JB2,JB3,JQ0,JQ1,JQ2,JQ3,JS0,JS1,JS2,JS3,frac
 
-                    # for each cell calculate quantities
-                    e,Plong,Ptrans,v,gamma = solve_Tmunu(line_fort[4:14])
-                    nB = density(line_fort[14:18],gamma)
-                    nQ = density(line_fort[18:22],gamma)
-                    nS = density(line_fort[22:26],gamma)
-
-                    # record tau and anisotropy for central cell x=y=eta=0
-                    if(abs(line_fort[1])<=(Rad-xb/2) and abs(line_fort[2])<=(Rad-xb/2) and line_fort[3]==0):
-                         anis[itau].append(Plong/Ptrans)
-
-                    # average Tmunu and currents
-                    TMUNU[index] += line_fort[4:14]
-                    JCUR[index,0] += line_fort[14:18]
-                    JCUR[index,1] += line_fort[18:22]
-                    JCUR[index,2] += line_fort[22:26]
-
-                    data['nval'][index] += 1
+                    # record Tmunu and currents
+                    data['Tmunu'][index] = tuple([line_fort[4+i]+data['Tmunu'][index][i] for i in range(10)])
+                    data['JB'][index] = tuple([line_fort[14+i]+data['JB'][index][i] for i in range(4)])
+                    data['JQ'][index] = tuple([line_fort[18+i]+data['JQ'][index][i] for i in range(4)])
+                    data['JS'][index] = tuple([line_fort[22+i]+data['JS'][index][i] for i in range(4)])
                     data['frac'][index] += line_fort[26]
-
-        with open(f'{folder}/Anis_B{int(xb*10)}_{string_deta}.dat','w') as anisfile:
-            anisfile.write('tau,anis,sem,sigma')
-            for itau,values in enumerate(anis):
-                anisfile.write(f'{DTAU*itau},{np.mean(values)},{scipy.stats.sem(values)},{np.std(values)}\n')
+                    data['nval'][index] += 1
     
         print('         Preparing data for output')
         for index,nval in enumerate(data['nval']):
-            # dividing quantities by number of values
-            TMUNU[index] /= nval
-            JCUR[index] /= nval
+            # averaged quantities, divide by number of values
+            data['Tmunu'][index] = tuple([data['Tmunu'][index][i]/nval for i in range(10)])
+            data['JB'][index] = tuple([data['JB'][index][i]/nval for i in range(4)])
+            data['JQ'][index] = tuple([data['JQ'][index][i]/nval for i in range(4)])
+            data['JS'][index] = tuple([data['JS'][index][i]/nval for i in range(4)])
             data['frac'][index] /= nval
-
-            # diagonalization of Tmunu
-            e,Plong,Ptrans,v,gamma = solve_Tmunu(TMUNU[index])
-            data['e'][index] = e
-            data['Plong'][index] = Plong
-            data['Ptrans'][index] = Ptrans
-            data['v'][index] = tuple(v)
-
-            # local densities
-            nB = density(JCUR[index,0],gamma)
-            nQ = density(JCUR[index,1],gamma)
-            nS = density(JCUR[index,2],gamma)
-            data['n'][index] = (nB,nQ,nS)
 
         output.create_dataset(f'{xb}', data=data)
             

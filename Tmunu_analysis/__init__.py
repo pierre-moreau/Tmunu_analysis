@@ -232,6 +232,7 @@ def density(cur,vel):
     calculate local densities from charge current
     gamma/vel is the Lorentz factor/velocity obtained by Landau condition
     """
+    cur = np.array([val for val in cur])
     # gamma factor
     gamma = 1./np.sqrt(1.-sum([vi**2. for vi in vel]))
     # four velocity vector
@@ -241,7 +242,11 @@ def density(cur,vel):
     # dissipative term
     nmu = cur-nloc*umu
     # Inverse Reynolds number
-    Reyn = np.sqrt(fourprod(nmu,nmu))/nloc
+    norm_nmu = fourprod(nmu,nmu)
+    if(norm_nmu>0.):
+        Reyn = np.sqrt(norm_nmu)/nloc
+    else:
+        Reyn = 0.
 
     return nloc,Reyn
 
@@ -284,7 +289,11 @@ def dissip_Tmunu(Tmunu_comp,e,Piso,vel):
 
     # shear stress tensor
     pimunu = Tmunu -e*umuunu + (Piso+BVP)*Dmunu
-    Reynpi = np.sqrt(tensprod(pimunu,pimunu))/(e+Piso)
+    norm_pimunu = tensprod(pimunu,pimunu)
+    if(norm_pimunu>0.):
+        Reynpi = np.sqrt(norm_pimunu)/(e+Piso)
+    else:
+        Reynpi = 0.
     
     return Reynpi,ReynPI
 
